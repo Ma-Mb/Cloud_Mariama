@@ -49,3 +49,11 @@ my-node-app/
 ├── package.json            # Node.js dependencies and metadata
 ├── package-lock.json       # Lock file for dependencies
 └── README.md               # Project documentation
+
+---
+
+## **Déploiement**
+
+L'application est déployée sur Google Cloud Run et accessible via le lien suivant :
+
+[Visiter l'application déployée](https://my-node-app-881946346796.us-central1.run.app/)

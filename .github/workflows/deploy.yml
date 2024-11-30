@@ -1,63 +1,94 @@
 name: Build and Deploy Node.js App
 
 on:
+  # Cette action se déclenche à chaque push sur la branche 'main'
   push:
     branches:
       - main
 
 jobs:
+  # Job de construction de l'image Docker
   build:
     runs-on: ubuntu-latest
     steps:
-      # Étape 1 : Récupérer le code source
       - name: Checkout repository
+        # Récupère le code source du repository GitHub
         uses: actions/checkout@v3
 
-      # Étape 2 : Configurer Node.js
       - name: Setup Node.js environment
+        # Installe Node.js avec la version spécifiée (ici la version 18)
         uses: actions/setup-node@v3
         with:
           node-version: 18
 
-      # Étape 3 : Installer les dépendances
       - name: Install dependencies
+        # Installe les dépendances de l'application (npm install)
         run: npm install
 
-      # Étape 4 : Construire l'image Docker
       - name: Build Docker image
+        # Construit l'image Docker à partir du Dockerfile et l'étiquette avec le SHA du commit GitHub
         run: |
-          docker build -t my-node-app:${{ github.sha }} .
+          docker build -t ${{ secrets.DOCKER_USERNAME }}/my-node-app:${{ github.sha }} .
 
+      - name: Save Docker image as tarball
+        # Sauvegarde l'image Docker dans un fichier tarball pour pouvoir le transférer
+        run: |
+          docker save -o /tmp/docker-image.tar ${{ secrets.DOCKER_USERNAME }}/my-node-app:${{ github.sha }}
+
+      - name: Upload Docker image artifact
+        # Télécharge l'image Docker en tant qu'artifact pour une utilisation ultérieure dans d'autres jobs
+        uses: actions/upload-artifact@v3
+        with:
+          name: docker-image
+          path: /tmp/docker-image.tar
+
+  # Job pour pousser l'image Docker vers DockerHub
   push_to_dockerhub:
-    needs: build
+    needs: build  # Ce job dépend du job 'build'
     runs-on: ubuntu-latest
     steps:
-      # Étape 1 : Connexion à DockerHub
       - name: Login to DockerHub
+        # Se connecte à DockerHub avec les informations d'identification stockées dans les secrets GitHub
         run: echo "${{ secrets.DOCKER_PASSWORD }}" | docker login -u "${{ secrets.DOCKER_USERNAME }}" --password-stdin
 
-      # Étape 2 : Pousser l'image Docker sur DockerHub
-      - name: Push Docker image
-        run: |
-          docker tag my-node-app:${{ github.sha }} mariambodji/my-node-app:${{ github.sha }}
-          docker push mariambodji/my-node-app:${{ github.sha }}
+      - name: Download Docker image artifact
+        # Télécharge l'artifact contenant l'image Docker sauvegardée dans le job précédent
+        uses: actions/download-artifact@v3
+        with:
+          name: docker-image
 
+      - name: Load Docker image
+        # Charge l'image Docker depuis le fichier tarball téléchargé
+        run: |
+          docker load -i docker-image.tar
+
+      - name: Push Docker image
+        # Pousse l'image Docker vers DockerHub
+        run: |
+          docker push ${{ secrets.DOCKER_USERNAME }}/my-node-app:${{ github.sha }}
+
+  # Job pour déployer l'application sur Google Cloud Run
   deploy_to_cloud_run:
-    needs: push_to_dockerhub
+    needs: push_to_dockerhub  # Ce job dépend du job 'push_to_dockerhub'
     runs-on: ubuntu-latest
     steps:
-      # Étape 1 : Configurer l'outil gcloud
+      - name: Authenticate with Google Cloud
+        # Authentifie avec Google Cloud en utilisant les informations d'identification stockées dans les secrets GitHub
+        uses: google-github-actions/auth@v1
+        with:
+          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
+
       - name: Setup gcloud CLI
+        # Configure le CLI gcloud avec le project ID spécifié dans les secrets
         uses: google-github-actions/setup-gcloud@v1
         with:
           project_id: ${{ secrets.GCP_PROJECT_ID }}
-          credentials_json: ${{ secrets.GCP_CREDENTIALS }}
 
-      # Étape 2 : Déployer sur Google Cloud Run
       - name: Deploy to Cloud Run
+        # Déploie l'application sur Google Cloud Run en utilisant l'image Docker poussée dans DockerHub
         run: |
           gcloud run deploy my-node-app \
-            --image=mariambodji/my-node-app:${{ github.sha }} \
+            --image=${{ secrets.DOCKER_USERNAME }}/my-node-app:${{ github.sha }} \
             --region=us-central1 \
             --platform=managed \
             --allow-unauthenticated
