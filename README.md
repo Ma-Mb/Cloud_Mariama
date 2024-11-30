@@ -52,6 +52,7 @@ my-node-app/
 
 ---
 
+```
 ## **Déploiement**
 
 L'application est déployée sur Google Cloud Run et accessible via le lien suivant :
